@@ -1,0 +1,72 @@
+
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Live Poll</title>
+            <script src="https://cdn.tailwindcss.com"></script>
+            <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+            <style> body { font-family: 'Inter', sans-serif; } .timer-bar { transition: width 1s linear; } </style>
+        </head>
+        <body class="bg-gray-100 flex items-center justify-center h-screen">
+            <div id="loading" class="text-center"><h1 class="text-2xl font-semibold">Loading Poll...</h1></div>
+            <div id="poll-container" class="hidden w-full max-w-2xl mx-auto bg-white rounded-2xl shadow-xl p-8 text-center">
+                <h1 id="poll-title" class="text-3xl font-bold text-gray-800 mb-4"></h1>
+                <p id="question-title" class="text-xl text-gray-600 mb-6"></p>
+                <div id="answers-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4 my-8"></div>
+                <div class="mt-8">
+                    <div class="w-full bg-gray-200 rounded-full h-4">
+                        <div id="timer-bar" class="bg-indigo-600 h-4 rounded-full timer-bar" style="width: 100%;"></div>
+                    </div>
+                    <p class="text-lg text-gray-700 mt-2">Time remaining: <span id="time-left"></span>s</p>
+                </div>
+            </div>
+            <div id="end-screen" class="hidden text-center"><h1 class="text-4xl font-bold text-green-600 mb-4">Thank you for participating!</h1><p class="text-xl text-gray-700">You can now view the results.</p></div>
+            <script>
+                const { createClient } = supabase;
+                const SUPABASE_URL = 'https://ttzakubulphvibneblpm.supabase.co';
+                const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR0emFrdWJ1bHBodmlibmVibHBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTExMDYwMTYsImV4cCI6MjA2NjY4MjAxNn0.SXB9SUHUEOrpOsnZSsfsnCxqkc4wUbucpCSGlKghQjM';
+                const db = createClient(SUPABASE_URL, SUPABASE_KEY);
+                let pollData, currentQuestionIndex = 0, timerInterval, timeLeft;
+                let userId = localStorage.getItem('poll_user_id');
+                if (!userId) { userId = crypto.randomUUID(); localStorage.setItem('poll_user_id', userId); }
+                const loadingDiv = document.getElementById('loading'), pollContainer = document.getElementById('poll-container'), endScreen = document.getElementById('end-screen'), pollTitleEl = document.getElementById('poll-title'), questionTitleEl = document.getElementById('question-title'), answersGrid = document.getElementById('answers-grid'), timerBar = document.getElementById('timer-bar'), timeLeftEl = document.getElementById('time-left');
+                async function loadPoll() {
+                    const urlParams = new URLSearchParams(window.location.search); const pollId = urlParams.get('id');
+                    if (!pollId) { loadingDiv.innerHTML = '<h1 class="text-2xl font-semibold text-red-500">Error: Poll ID not found in URL.</h1>'; return; }
+                    try {
+                        const { data, error } = await db.from('polls').select('*').eq('id', pollId).single();
+                        if (error) throw error; if (!data) throw new Error("Poll not found.");
+                        pollData = data; loadingDiv.classList.add('hidden'); pollContainer.classList.remove('hidden'); pollTitleEl.textContent = pollData.title; displayQuestion();
+                    } catch (error) { console.error("Error loading poll:", error); loadingDiv.innerHTML = `<h1 class="text-2xl font-semibold text-red-500">Error loading poll: ${error.message}</h1>`; }
+                }
+                function displayQuestion() {
+                    if (currentQuestionIndex >= pollData.questions.length) { showEndScreen(); return; }
+                    const question = pollData.questions[currentQuestionIndex]; questionTitleEl.textContent = question.title; answersGrid.innerHTML = '';
+                    question.answers.forEach((answer, index) => {
+                        const button = document.createElement('button');
+                        button.className = "answer-btn w-full p-4 border-2 border-gray-300 rounded-lg text-lg font-medium hover:bg-indigo-100 hover:border-indigo-500 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500";
+                        button.textContent = answer; button.dataset.answerIndex = index; button.addEventListener('click', handleAnswer); answersGrid.appendChild(button);
+                    });
+                    startTimer();
+                }
+                function startTimer() { clearInterval(timerInterval); timeLeft = pollData.timer; updateTimerDisplay(); timerInterval = setInterval(() => { timeLeft--; updateTimerDisplay(); if (timeLeft <= 0) { clearInterval(timerInterval); nextQuestion(); } }, 1000); }
+                function updateTimerDisplay() { timeLeftEl.textContent = timeLeft; const percentage = (timeLeft / pollData.timer) * 100; timerBar.style.width = `${percentage}%`; }
+                async function handleAnswer(event) {
+                    const answerIndex = event.target.dataset.answerIndex;
+                    document.querySelectorAll('.answer-btn').forEach(btn => btn.disabled = true); event.target.classList.add('bg-indigo-500', 'text-white', 'border-indigo-500');
+                    try {
+                        const { error } = await db.from('poll_answers').insert({ poll_id: pollData.id, question_index: currentQuestionIndex, answer_index: parseInt(answerIndex), user_id: userId });
+                        if (error) throw error;
+                    } catch (error) { console.error("Error saving answer:", error); }
+                    clearInterval(timerInterval); setTimeout(nextQuestion, 1000);
+                }
+                function nextQuestion() { currentQuestionIndex++; displayQuestion(); }
+                function showEndScreen() { pollContainer.classList.add('hidden'); endScreen.classList.remove('hidden'); }
+                window.onload = loadPoll;
+            </script>
+        </body>
+        </html>
